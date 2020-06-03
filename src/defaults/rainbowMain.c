@@ -1,9 +1,9 @@
-#include "RB_Main.h"
-#include "RB_AssignmentQueue.h"
-#include "RB_BasicTypes.h"
-#include "RB_ColorPool.h"
-#include "RB_PixelMap.h"
-#include "RB_Display.h"
+#include "headers/RB_Main.h"
+#include "headers/RB_AssignmentQueue.h"
+#include "headers/RB_BasicTypes.h"
+#include "headers/RB_ColorPool.h"
+#include "headers/RB_PixelMap.h"
+#include "headers/RB_Display.h"
 #include <stdio.h>
 #include <stdlib.h>
 

@@ -1,5 +1,5 @@
-#include "RB_PixelMap.h"
-#include "RB_AssignmentQueue.h"
+#include "headers/RB_PixelMap.h"
+#include "headers/RB_AssignmentQueue.h"
 #include <stdlib.h>
 #include <stdio.h>
 

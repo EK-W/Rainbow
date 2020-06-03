@@ -1,14 +1,14 @@
-#include "RB_Main.h"
-#include "RB_Display.h"
+#include "headers/RB_Main.h"
+#include "headers/RB_Display.h"
 #include <stdbool.h>
 
 int main(int argc, char** argv) {
 	RB_Config config = {
-		.width = 512,
-		.height = 512,
-		.rRes = 64,
-		.gRes = 64,
-		.bRes = 64,
+		.width = 64,
+		.height = 64,
+		.rRes = 16,
+		.gRes = 16,
+		.bRes = 16,
 		.windowWidth = 512,
 		.windowHeight = 512
 	};

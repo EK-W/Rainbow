@@ -1,7 +1,11 @@
 #TO DO:
 - ~~Write an implementation in rainbowFactory.~~
-- Separate it into multiple files.
-- Separate headers into folder
+- ~~Separate it into multiple files.~~
+- ~~Separate headers into folder~~
+- Allow setting of starting points
+- Consider moving back to working with coords instead of pixels
+- Create functions to aid setting up configuration structs
+- Make function naming schemes more like SDL, always beginning with their "class" type.
 - Make a struct rainbowSetup which includes function pointers to each of the customizable generation functions
 	- Make there be default rainbowSetup functions and then functions to change each function.
 	- Hey uhhhhh how are we gonna deal with struct definitions??
@@ -11,13 +15,12 @@
 - Implement the cube sublist tree thing to speed up the color finding
 - Separate arguments into structs
 - Add color transformation stuff to the display function
-- Create functions to aid setting up configuration structs
-- Make function naming schemes more like SDL, always beginning with their "class" type.
+
 - Make error messages more descriptive
 - Figure out how to only send SDL_Quit when everything is done.
 - Write as many guarantees as possible
-- Consider moving back to working with coords instead of pixels
 - Consider inlining certain functions
+
 
 
 #Thoughts:
@@ -39,6 +42,11 @@
 - Customizing this will change how getPreferredColor interacts with space. Lots of opportunity for strange things.
 - Could create color-wormholes
 - Could make the edges of the screen wrap around
+
+#GetPreferredColor
+- New pixel chance of completely changing target color.
+- Customizable radii
+- Weight one direction higher than other directions
 
 ##GetIdealAllowedColor
 ###Options for GetIdealAllowedColor:

@@ -1,14 +1,18 @@
 #include "headers/RB_Main.h"
 #include "headers/RB_Display.h"
 #include <stdbool.h>
+#include <time.h>
+#include <stdlib.h>
 
 int main(int argc, char** argv) {
+	srand(time(NULL));
+	
 	RB_Config config = {
-		.width = 64,
-		.height = 64,
-		.rRes = 16,
-		.gRes = 16,
-		.bRes = 16,
+		.width = 512,
+		.height = 512,
+		.rRes = 64,
+		.gRes = 64,
+		.bRes = 64,
 		.windowWidth = 512,
 		.windowHeight = 512
 	};

@@ -1,9 +1,9 @@
-#TO DO:
+# TO DO:
 - ~~Write an implementation in rainbowFactory.~~
 - ~~Separate it into multiple files.~~
 - ~~Separate headers into folder~~
 - Allow setting of starting points
-- Consider moving back to working with coords instead of pixels
+- ~~Consider moving back to working with coords instead of pixels~~
 - Create functions to aid setting up configuration structs
 - Make function naming schemes more like SDL, always beginning with their "class" type.
 - Create utility file with code to, for instance, set pixel colors and stuff
@@ -26,10 +26,10 @@
 
 
 
-#Thoughts:
+# Thoughts:
 - closest available color should not necessarily be customizable, as the closest color available *should* always return the same color, regardless of implementation (except in the case that multiple colors are equally distant from the desired color). Perhaps it would make sense to rename the function "ideal available color", as that would allow different implementations to decide for themselves which colors are more ideal than others when the preferred color is not available.
 
-#Thoughts about color and dimensions:
+# Thoughts about color and dimensions:
 - The fact that this arranges colors is not actually that important. Right now, we are programming for three dimensions (r, g, and b) but in theory the number of dimensions is sorta arbitrary. Making this work for any number of dimensions could allow for some cool results. And I'm not sure that anything would conceptually be very different. The only problematic part would be figuring out how to represent the "color" values correctly.
 - If we were to implement this in this more general way, there would be two things to think about:
 	- 1) Bits per dimension
@@ -37,22 +37,22 @@
 
 
 
-##ChooseNextPixelCoord
+## ChooseNextPixelCoord
 - Really, there's not much opportunity for customization here. The customization comes more from adding the coordinates to the queue.
 - Maybe the Queue should have some sort of priority system!
 
-##GetColorPointAtCoord
+## GetColorPointAtCoord
 - Customizing this will change how getPreferredColor interacts with space. Lots of opportunity for strange things.
 - Could create color-wormholes
 - Could make the edges of the screen wrap around
 
-#GetPreferredColor
+# GetPreferredColor
 - New pixel chance of completely changing target color.
 - Customizable radii
 - Weight one direction higher than other directions
 
-##GetIdealAllowedColor
-###Options for GetIdealAllowedColor:
+## GetIdealAllowedColor
+### Options for GetIdealAllowedColor:
 - Emptying list method
 	- Slow
 - Octant-sphere method
@@ -65,6 +65,6 @@
 - A cube-tree structure
 	- Very good idea.
 
-###Ideas for GetIdealAllowedColor:
+### Ideas for GetIdealAllowedColor:
 - Weigh differences in hue differently than differences in saturation and value
 - Make it search for colors that are slightly different instead of as close as possible

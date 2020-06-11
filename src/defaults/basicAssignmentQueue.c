@@ -2,24 +2,46 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define RB_QUEUE_INDEX_UNQUEUED -1
+
 struct RB_AssignmentQueue_s {
-	RB_Pixel** data;
-	RB_Size size;
+	RB_Coord* coords;
+	RB_Size coordLen;
+	RB_Size maxCoordLen;
+
+	RB_Size** coordIndexes;
+	RB_Size xRange;
+	RB_Size yRange;
 };
 
 // Allocates an assignmentQueue capable of storing the specified number of pixels.
-RB_AssignmentQueue* RB_createAssignmentQueue(RB_Size size) {
+RB_AssignmentQueue* RB_createAssignmentQueue(RB_Size size, RB_Size xRange, RB_Size yRange) {
 	RB_AssignmentQueue* ret = malloc(
 		sizeof(RB_AssignmentQueue)
-		+ (sizeof(RB_Pixel*) * size)
+		+ (sizeof(RB_Coord) * size)
+		+ (sizeof(RB_Size*) * xRange)
+		+ (sizeof(RB_Size) * xRange * yRange)
 	);
 
 	if(ret == NULL) {
 		return NULL;
 	}
 
-	ret->data = (RB_Pixel**) (ret + 1);
-	ret->size = 0;
+	ret->coords = (RB_Coord*) (ret + 1);
+	ret->maxCoordLen = size;
+	ret->coordLen = 0;
+
+	ret->coordIndexes = (RB_Size**) (ret->coords + size);
+	ret->xRange = xRange;
+	ret->yRange = yRange;
+	RB_Size* xyIndexesStart = (RB_Size*) (ret->coordIndexes + xRange);
+
+	for(RB_Size x = 0; x < xRange; x++) {
+		ret->coordIndexes[x] = xyIndexesStart + (x * yRange);
+		for(RB_Size y = 0; y < yRange; y++) {
+			ret->coordIndexes[x][y] = RB_QUEUE_INDEX_UNQUEUED;
+		}
+	} 
 
 	return ret;
 }
@@ -32,43 +54,64 @@ void RB_freeAssignmentQueue(RB_AssignmentQueue* queue) {
 
 // Returns true if the queue is empty. Otherwise, returns false.
 bool RB_isQueueEmpty(RB_AssignmentQueue* queue) {
-	return queue->size == 0;
+	return queue->coordLen == 0;
+}
+
+bool RB_isQueueFull(RB_AssignmentQueue* queue) {
+	return queue->coordLen == queue->maxCoordLen;
 }
 
 RB_Size RB_getQueueSize(RB_AssignmentQueue* queue) {
-	return queue->size;
+	return queue->coordLen;
 }
 
-// Chooses (using an implementation-specific method) a pixel from the queue and returns it.
-RB_Pixel* RB_getPixelFromAssignmentQueue(RB_AssignmentQueue* queue) {
+RB_Size RB_getQueueCapacity(RB_AssignmentQueue* queue) {
+	return queue->maxCoordLen;
+}
+
+// Chooses (using an implementation-specific method) a coord from the queue and returns it.
+RB_Coord RB_chooseCoordFromAssignmentQueue(RB_AssignmentQueue* queue) {
 	if(RB_isQueueEmpty(queue)) {
-		fprintf(stderr, "AssignmentQueue has no more pixels!\n");
-		return NULL;
+		fprintf(stderr, "AssignmentQueue is empty!!\n");
+		return (RB_Coord) { .x = -1, .y = -1 };
 	}
 
-	RB_Size retIndex = ((RB_Size) rand()) % queue->size;
-	return queue->data[retIndex];
+	RB_Size retIndex = ((RB_Size) rand()) % queue->coordLen;
+	return queue->coords[retIndex];
 }
 
-// If the pixel is in the Queue, removes it.
-void RB_removePixelFromAssignmentQueue(RB_AssignmentQueue* queue, RB_Pixel* pixel) {
+bool RB_coordIsWithinQueueBounds(RB_AssignmentQueue* queue, RB_Coord coord) {
+	return (
+		coord.x >= 0
+		&& coord.x < queue->xRange
+		&& coord.y >= 0
+		&& coord.y < queue->yRange
+	);
+}
 
-	RB_Size pixelIndex = pixel->queueData;
+bool RB_coordIsInQueue(RB_AssignmentQueue* queue, RB_Coord coord) {
+	return (
+		RB_coordIsWithinQueueBounds(queue, coord)
+		&& queue->coordIndexes[coord.x][coord.y] != -1
+	);
+}
 
-	if(
-		(pixel->status == RB_PIXEL_QUEUED) // Make sure pixel is queued
-		&& (pixelIndex >= 0) // Make sure pixel claims to be in a valid index
-		&& (pixelIndex < queue->size)
-		// Make sure the pixel truly is pointing to its own position. If this is not true for a queued pixel, a bug has occurred.
-		&& (RB_coordsAreEqual(queue->data[pixelIndex]->loc, pixel->loc))
-	) {
-		RB_Pixel* lastPixel = queue->data[queue->size - 1];
-		queue->data[pixelIndex] = lastPixel;
-		lastPixel->queueData = pixelIndex;
-		pixel->status = RB_PIXEL_BLANK;
-		queue->size--;
+// If the coord is in the Queue, removes it.
+void RB_removeCoordFromAssignmentQueue(RB_AssignmentQueue* queue, RB_Coord coord) {
+	if(RB_coordIsInQueue(queue, coord)) { // If the coord is in the queue, the queue is guaranteed not to be empty
+		RB_Size coordIndex = queue->coordIndexes[coord.x][coord.y];
+
+		RB_Size lastIndex = queue->coordLen - 1;
+		RB_Coord lastCoord = queue->coords[lastIndex];
+
+		queue->coords[coordIndex] = lastCoord;
+		queue->coordIndexes[lastCoord.x][lastCoord.y] = coordIndex;
+
+		queue->coordIndexes[coord.x][coord.y] = RB_QUEUE_INDEX_UNQUEUED;
+
+		queue->coordLen--;
 	} else {
-		fprintf(stderr, "Pixel is not Queued or has incorrect queue data.\n");
+		fprintf(stderr, "Error removing coord from queue: Coord(%d, %d) is not in queue.\n", coord.x, coord.y);
 	}
 }
 
@@ -82,22 +125,20 @@ Higher positive values for priorityIndex correspond to lower prioritization. A p
 possible prioritization.
 Negative values for priorityIndex correspond to the lowest possible prioritization.
 */
-void RB_addPixelToAssignmentQueue(RB_AssignmentQueue* queue, RB_Pixel* toAdd, RB_Size priorityIndex) {
-	switch(toAdd->status) {
-		case RB_PIXEL_BLANK:
-			queue->data[queue->size] = toAdd;
-			toAdd->status = RB_PIXEL_QUEUED;
-			toAdd->queueData = queue->size;
-			queue->size++;
-			return;
-		case RB_PIXEL_SET:
-			fprintf(stderr, "Attemping to queue an already-set pixel!\n");
-			return;
-		default:
-			return;
+void RB_addCoordToAssignmentQueue(RB_AssignmentQueue* queue, RB_Coord toAdd, RB_Size priorityIndex) {
+	if(RB_isQueueFull(queue)) {
+		fprintf(stderr, "Error adding coord to queue: Queue is full!\n");
+		return;
 	}
-}
 
-void RB_printAssignmentQueue(RB_AssignmentQueue* aaa) {
-
+	if(RB_coordIsWithinQueueBounds(queue, toAdd)) {
+		if(RB_coordIsInQueue(queue, toAdd)) return;
+		queue->coords[queue->coordLen] = toAdd;
+		queue->coordIndexes[toAdd.x][toAdd.y] = queue->coordLen;
+		queue->coordLen++;
+	} else {
+		fprintf(stderr, "Error adding coord to queue: Coord(%d, %d) is out of Bounds(%d, %d)!\n",
+			toAdd.x, toAdd.y, queue->xRange, queue->yRange
+		);
+	}
 }

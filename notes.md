@@ -6,6 +6,9 @@
 - Consider moving back to working with coords instead of pixels
 - Create functions to aid setting up configuration structs
 - Make function naming schemes more like SDL, always beginning with their "class" type.
+- Create utility file with code to, for instance, set pixel colors and stuff
+- Standardize field naming conventions
+- Add informational functions (like gettingthe size of the queue, for example)
 - Make a struct rainbowSetup which includes function pointers to each of the customizable generation functions
 	- Make there be default rainbowSetup functions and then functions to change each function.
 	- Hey uhhhhh how are we gonna deal with struct definitions??
@@ -15,7 +18,7 @@
 - Implement the cube sublist tree thing to speed up the color finding
 - Separate arguments into structs
 - Add color transformation stuff to the display function
-
+- Overhaul documentation
 - Make error messages more descriptive
 - Figure out how to only send SDL_Quit when everything is done.
 - Write as many guarantees as possible

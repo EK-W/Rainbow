@@ -34,7 +34,6 @@ RB_PixelMap* RB_createPixelMap(RB_Size width, RB_Size height) {
 			ret->pixels[x][y] = (RB_Pixel) {
 				.loc = { .x = x, .y = y },
 				.color = { .r = 0, .g = 0, .b = 0 },
-				.queueData = -1,
 				.status = RB_PIXEL_BLANK
 			};
 		}
@@ -113,11 +112,12 @@ void RB_addResultantCoordsToQueue(RB_PixelMap* map, RB_AssignmentQueue* queue, R
 		for(RB_Size dy = -1; dy <= 1; dy++) {
 			if(dx == 0 && dy == 0) continue;
 
+
 			RB_Pixel* toAdd = RB_getPixel(map, (RB_Coord) { .x = center.x + dx, .y = center.y + dy });
 			if(toAdd == NULL) continue;
 			if(toAdd->status != RB_PIXEL_BLANK) continue;
 
-			RB_addPixelToAssignmentQueue(queue, toAdd, -1);
+			RB_addCoordToAssignmentQueue(queue, toAdd->loc, -1);
 		}
 	}
 }

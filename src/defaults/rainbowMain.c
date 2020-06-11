@@ -8,7 +8,9 @@
 #include <stdlib.h>
 
 
-void setPixelColor(RB_Data* data, RB_Pixel* toSet, RB_Color color) {
+void setPixelColor(RB_Data* data, RB_Coord coord, RB_Color color) {
+	RB_Pixel* toSet = RB_getPixel(data->pixelMap, coord);
+
 	if(toSet->status == RB_PIXEL_SET) {
 		fprintf(
 			stderr,
@@ -20,8 +22,8 @@ void setPixelColor(RB_Data* data, RB_Pixel* toSet, RB_Color color) {
 		);
 		return;
 	}
-	if(toSet->status == RB_PIXEL_QUEUED) {
-		RB_removePixelFromAssignmentQueue(data->assignmentQueue, toSet);	
+	if(RB_coordIsInQueue(data->assignmentQueue, toSet->loc)) {
+		RB_removeCoordFromAssignmentQueue(data->assignmentQueue, toSet->loc);	
 	}
 	RB_removeColorFromPool(data->colorPool, color);
 
@@ -59,7 +61,7 @@ RB_Data* RB_init(RB_Config config) {
 
 	RB_Size numPixels = config.height * config.width;
 	
-	ret->assignmentQueue = RB_createAssignmentQueue(numPixels);
+	ret->assignmentQueue = RB_createAssignmentQueue(numPixels, config.width, config.height);
 
 	if(ret->assignmentQueue == NULL) {
 		fprintf(stderr, "Failed to initialize Assignment Queue!\n");
@@ -96,8 +98,11 @@ RB_Data* RB_init(RB_Config config) {
 	}
 
 	// Set starting points
-	RB_Pixel* startPixel = RB_getPixel(ret->pixelMap, (RB_Coord) { .x = config.width / 2, .y = config.height / 2 });
-	setPixelColor(ret, startPixel, (RB_Color) { .r = config.rRes / 2, .g = config.gRes / 2, .b = config.bRes / 2 });
+	setPixelColor(
+		ret,
+		(RB_Coord) { .x = config.width / 2, .y = config.height / 2 },
+		(RB_Color) { .r = config.rRes / 2, .g = config.gRes / 2, .b = config.bRes / 2 }
+	);
 
 	return ret;
 }
@@ -120,11 +125,11 @@ bool RB_generateNextPixel(RB_Data* data) {
 		return false;
 	}
 
-	RB_Pixel* nextPixel = RB_getPixelFromAssignmentQueue(data->assignmentQueue);
-	RB_Color preferredColor = RB_determinePreferredCoordColor(data->pixelMap, nextPixel->loc);
+	RB_Coord nextCoord = RB_chooseCoordFromAssignmentQueue(data->assignmentQueue);
+	RB_Color preferredColor = RB_determinePreferredCoordColor(data->pixelMap, nextCoord);
 	RB_Color idealColor = RB_findIdealAvailableColor(data->colorPool, preferredColor);
 
-	setPixelColor(data, nextPixel, idealColor);
+	setPixelColor(data, nextCoord, idealColor);
 
 	return !RB_isQueueEmpty(data->assignmentQueue);
 }

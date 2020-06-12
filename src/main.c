@@ -5,19 +5,13 @@
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
-	srand(time(NULL));
-	
-	RB_Config config = {
-		.width = 512,
-		.height = 512,
-		.rRes = 64,
-		.gRes = 64,
-		.bRes = 64,
-		.windowWidth = 512,
-		.windowHeight = 512
-	};
+	RB_Config* config = RB_newConfig();
+	RB_setColorResolution(config, 64, 64, 64);
+	RB_setWindowDimensions(config, 512, 512);
 
 	RB_Data* rainbow = RB_init(config);
+
+	RB_setCoordColor(rainbow, RB_getRandomCoord(rainbow), RB_getRandomColor(rainbow));
 
 	bool shouldQuit = false;
 
@@ -36,6 +30,7 @@ int main(int argc, char** argv) {
 	
 
 	RB_free(rainbow);
+	RB_freeConfig(config);
 
 	return 0;
 }

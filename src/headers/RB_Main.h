@@ -13,29 +13,62 @@ typedef struct RB_Display_s RB_Display;
 
 typedef struct RB_Data_s RB_Data;
 
+typedef struct RB_Config_s RB_Config;
+
+// TODO: Decouple display from the rest of rainbow so that these structs don't need to be visible.
+struct RB_Config_s {
+	RB_Size width;
+	RB_Size height;
+	bool mapDimensionsSet;
+
+	RB_ColorChannelSize rRes;
+	RB_ColorChannelSize gRes;
+	RB_ColorChannelSize bRes;
+	bool colorResSet;
+
+	int windowWidth;
+	int windowHeight;
+	bool windowDimensionsSet;
+
+	unsigned int seed;
+	bool seedSet;
+};
+
 struct RB_Data_s {
 	RB_AssignmentQueue* assignmentQueue; // the queue of coordinates that should be assigned a color.
 	RB_ColorPool* colorPool;
 	RB_PixelMap* pixelMap;
 	RB_Display* display;
+
+	RB_Config config;
 };
 
-typedef struct {
-	RB_Size width;
-	RB_Size height;
+// CONFIG FUNCTIONS:
+RB_Config* RB_newConfig();
+void RB_freeConfig(RB_Config*);
 
-	RB_ColorChannelSize rRes;
-	RB_ColorChannelSize gRes;
-	RB_ColorChannelSize bRes;
+void RB_setColorResolution(RB_Config*, RB_ColorChannelSize, RB_ColorChannelSize, RB_ColorChannelSize);
 
-	int windowWidth;
-	int windowHeight;
-} RB_Config;
+void RB_setMapDimensions(RB_Config*, RB_Size, RB_Size);
 
-RB_Data* RB_init(RB_Config);
+void RB_setWindowDimensions(RB_Config*, int, int);
+
+void RB_setRandomSeed(RB_Config*, unsigned int);
+
+
+// ALLOCATION FUNCTIONS:
+RB_Data* RB_init(RB_Config*);
 
 void RB_free(RB_Data*);
 
+
+// HELPER FUNCTIONS
+RB_Color RB_getRandomColor(RB_Data*);
+
+RB_Coord RB_getRandomCoord(RB_Data*);
+
+// GENERATION FUNCTIONS:
+void RB_setCoordColor(RB_Data*, RB_Coord, RB_Color);
 
 // Sets the color for another pixel. Returns true if there are pixels left to generate, otherwise returns false.
 bool RB_generateNextPixel(RB_Data*);

@@ -13,7 +13,7 @@
 - Make a struct rainbowSetup which includes function pointers to each of the customizable generation functions
 	- Make there be default rainbowSetup functions and then functions to change each function.
 	- Hey uhhhhh how are we gonna deal with struct definitions??
-- Create a default functions folder
+- ~~Create a default functions folder~~
 - Figure out how to allow users to specify parameters for ColorBrain (and other things, probably) even though the parameters needed vary between implementations.
 	- This shouldn't be super difficult. Just have the users specify the parameters using custom functions defined in the implementation files. Or something.
 - Implement the cube sublist tree thing to speed up the color finding

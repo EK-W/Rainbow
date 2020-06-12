@@ -98,11 +98,15 @@ RB_Color RB_determinePreferredCoordColor(RB_PixelMap* pixelMap, RB_Coord coord) 
 	}
 
 	uint_fast8_t halfNumNeighbors = numNeighbors / 2;
-	// By adding half of numNeighbors, hopefully the sums will
+	// By adding half of numNeighbors, hopefully the sums will round instead of floor.
+	RB_ColorChannelSum retR = (rSum + halfNumNeighbors) / numNeighbors;
+	RB_ColorChannelSum retG = (gSum + halfNumNeighbors) / numNeighbors;
+	RB_ColorChannelSum retB = (bSum + halfNumNeighbors) / numNeighbors;
+
 	return (RB_Color) {
-		.r = (rSum + halfNumNeighbors) / numNeighbors,
-		.g = (gSum + halfNumNeighbors) / numNeighbors,
-		.b = (bSum + halfNumNeighbors) / numNeighbors
+		.r = retR,
+		.g = retG,
+		.b = retB
 	};
 }
 

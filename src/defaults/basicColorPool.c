@@ -1,101 +1,484 @@
 #include "headers/RB_ColorPool.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdbool.h>
+
+// struct RB_ColorPool_s {
+// 	RB_Color* colors;
+// 	RB_Size colorsSize;
+
+// 	RB_Size*** colorIndexes;
+// 	RB_ColorChannelSize rSize;
+// 	RB_ColorChannelSize gSize;
+// 	RB_ColorChannelSize bSize;
+// };
+
+
+
+typedef enum {
+	POOL_NODE_COLOR,
+	POOL_NODE_OCTANT,
+	POOL_NODE_EMPTY
+} ColorPoolNodeType;
+
+typedef uint_fast8_t NodeChildrenSize;
+// length = 2^(dimensions_per_color)
+#define RB_COLOR_POOL_NODE_NUM_CHILDREN 8
+
+
+typedef struct ColorPoolNode_s {
+	ColorPoolNodeType type;
+	void* data;
+} ColorPoolNode;
+
+typedef struct ColorPoolOctant {
+	// It is guaranteed that if a color's R, G, and B values are between those of minCorner and maxCorner,
+	// that color will either be contained in this octant/this octant's descendants or it will not be contained
+	// by *any* octant (for instance, if the color has already been removed from this one).
+	RB_Color minCorner;
+	RB_Color maxCorner;
+
+	ColorPoolNode children[RB_COLOR_POOL_NODE_NUM_CHILDREN];
+} ColorPoolOctant;
+
+typedef struct {
+	// TODO: These first two fields probably don't need to use RB_Size
+	RB_Size index;
+	RB_Size divisor;
+	// Note that the following sizes are in the coordinates of the layer, not global coordinates.
+	RB_ColorChannelSize rSize;
+	RB_ColorChannelSize gSize;
+	RB_ColorChannelSize bSize;
+	void* dataStart;
+} OctantLayerMetaData;
 
 struct RB_ColorPool_s {
-	RB_Color* colors;
-	RB_Size colorsSize;
+	ColorPoolNode root;
 
-	RB_Size*** colorIndexes;
+	RB_Color* colors;
+	ColorPoolOctant* octants;
+
+	ColorPoolNode* nodeQueue;
+
 	RB_ColorChannelSize rSize;
 	RB_ColorChannelSize gSize;
 	RB_ColorChannelSize bSize;
 };
 
-// Allocates a colorPool with the specified range of colors.
-RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize gSize, RB_ColorChannelSize bSize) {
-	RB_ColorPool* ret = (RB_ColorPool*) malloc(
-		sizeof(RB_ColorPool) // The struct itself
-		+ (sizeof(RB_Color) * rSize * gSize * bSize) // the color list.
-		+ (sizeof(RB_Size**) * rSize) // The color indexes
-		+ (sizeof(RB_Size*) * rSize * gSize)
-		+ (sizeof(RB_Size) * rSize * gSize * bSize)
-	);
+size_t calculateMaximumOctants(RB_ColorChannelSize rSize, RB_ColorChannelSize gSize, RB_ColorChannelSize bSize) {
+	size_t ret = 0;
+	RB_Size levelRSize = rSize;
+	RB_Size levelGSize = gSize;
+	RB_Size levelBSize = bSize;
+	RB_Size octantsOnLevel;
 
+	do {
+		levelRSize = (levelRSize + 1) / 2;
+		levelGSize = (levelGSize + 1) / 2;
+		levelBSize = (levelBSize + 1) / 2;
+		octantsOnLevel = levelRSize * levelGSize * levelBSize;
+		ret += octantsOnLevel;
+	} while(octantsOnLevel != 1);
+
+	return ret;
+}
+
+ColorPoolNode getDataFromLayer(
+	OctantLayerMetaData layerDat,
+	RB_ColorChannelSize layerR,
+	RB_ColorChannelSize layerG,
+	RB_ColorChannelSize layerB
+) {
+	if(layerR >= layerDat.rSize || layerG >= layerDat.gSize || layerB >= layerDat.bSize) {
+		return (ColorPoolNode) {
+			.type = POOL_NODE_EMPTY,
+			.data = NULL
+		};
+	}
+
+	RB_Size dataPosition = (((layerR * layerDat.gSize) + layerG) * layerDat.bSize) + layerB;
+
+	if(layerDat.index == 0) {
+		// This means its the color layer
+		RB_Color* colorPtr = ((RB_Color*) layerDat.dataStart) + dataPosition;
+		return (ColorPoolNode) {
+			.type = POOL_NODE_COLOR,
+			.data = (void*) colorPtr
+		};
+	} else {
+		// This means its an octant layer
+		ColorPoolOctant* octPtr = ((ColorPoolOctant*) layerDat.dataStart) + dataPosition;
+		return (ColorPoolNode) {
+			.type = POOL_NODE_OCTANT,
+			.data = (void*) octPtr
+		};
+	}
+}
+
+RB_Color getNodeMinCorner(ColorPoolNode node) {
+	switch(node.type) {
+		case POOL_NODE_OCTANT:
+			return ((ColorPoolOctant*) node.data)->minCorner;
+		case POOL_NODE_COLOR:
+			return *((RB_Color*) node.data);
+		case POOL_NODE_EMPTY:
+			fprintf(stderr, "Error: attempting to get the minimum corner of an empty node!\n");
+			return (RB_Color) {
+				.r = 0,
+				.g = 0,
+				.b = 0
+			};
+	}
+}
+
+RB_Color getNodeMaxCorner(ColorPoolNode node) {
+	switch(node.type) {
+		case POOL_NODE_OCTANT:
+			return ((ColorPoolOctant*) node.data)->maxCorner;
+		case POOL_NODE_COLOR:
+			return *((RB_Color*) node.data);
+		case POOL_NODE_EMPTY:
+			fprintf(stderr, "Error: attempting to get the maximum corner of an empty node!\n");
+			return (RB_Color) {
+				.r = 0,
+				.g = 0,
+				.b = 0
+			};
+	}
+}
+
+RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize gSize, RB_ColorChannelSize bSize) {
+	RB_ColorPool* ret = (RB_ColorPool*) malloc(sizeof(RB_ColorPool));
+	
 	if(ret == NULL) {
 		return NULL;
 	}
 
-	ret->colors = (RB_Color*) (ret + 1);
-	ret->colorsSize = rSize * gSize * bSize;
+	ret->rSize = rSize;
+	ret->gSize = gSize;
+	ret->bSize = bSize;
+	ret->colors = NULL;
+	ret->octants = NULL;
+	ret->nodeQueue = NULL;
 
-	ret->colorIndexes = (RB_Size***) (ret->colors + (rSize * gSize * bSize));
-	RB_Size** gIndexesStart = (RB_Size**) (ret->colorIndexes + rSize);
-	RB_Size* bIndexesStart = (RB_Size*) (gIndexesStart + (rSize * gSize));
 
-	RB_Size cIndex = 0;
+	// ALLOCATE THE NODE QUEUE
+	// TODO: I know for sure that the nodeQueue will never need to be larger than numPixels,
+	// but I'm pretty sure it's possible to figure out an even smaller upper bound.
+	ret->nodeQueue = (ColorPoolNode*) malloc(sizeof(ColorPoolNode) * rSize * gSize * bSize);
+	if(ret->nodeQueue == NULL) {
+		RB_freeColorPool(ret);
+		return NULL;
+	}
+
+	// DEAL WITH COLORS
+	ret->colors = (RB_Color*) malloc(sizeof(RB_Color) * rSize * gSize * bSize);
+
+	if(ret->colors == NULL) {
+		RB_freeColorPool(ret);
+		return NULL;
+	}
+
+
+	RB_Size colorIndex = 0;
 	for(RB_ColorChannelSize r = 0; r < rSize; r++) {
-		ret->colorIndexes[r] = gIndexesStart + (r * gSize);
-
 		for(RB_ColorChannelSize g = 0; g < gSize; g++) {
-			ret->colorIndexes[r][g] = bIndexesStart + (((r * gSize) + g) * bSize);
-
 			for(RB_ColorChannelSize b = 0; b < bSize; b++) {
-				// This shouldn't overflow because rSize, gSize, and bSize should never be more than 256 
-				ret->colors[cIndex] = (RB_Color) { .r = r, .g = g, .b = b };
-				ret->colorIndexes[r][g][b] = cIndex;
-				cIndex++;
+				ret->colors[colorIndex] = (RB_Color) {
+					.r = (RB_ColorChannel) r,
+					.g = (RB_ColorChannel) g,
+					.b = (RB_ColorChannel) b
+				};
+				colorIndex++;
 			}
 		}
 	}
+
+
+	// DEAL WITH OCTANTS
+	size_t maxOctants = calculateMaximumOctants(rSize, gSize, bSize);
+	ret->octants = (ColorPoolOctant*) malloc(sizeof(ColorPoolOctant) * maxOctants);
+
+	if(ret->octants == NULL) {
+		RB_freeColorPool(ret);
+		return NULL;
+	}
+
+	RB_Size octantDataIndex = 0;
+
+	OctantLayerMetaData lastLayer = {
+		.index = 0,
+		.divisor = 1,
+		.rSize = rSize,
+		.gSize = gSize,
+		.bSize = bSize,
+		.dataStart = ret->colors
+	};
+
+	do {
+		OctantLayerMetaData layer = {
+			.index = lastLayer.index + 1,
+			.divisor = lastLayer.divisor * 2,
+			.rSize = (lastLayer.rSize + 1) / 2,
+			.gSize = (lastLayer.gSize + 1) / 2,
+			.bSize = (lastLayer.bSize + 1) / 2,
+			.dataStart = (ret->octants + octantDataIndex)
+		};
+
+		for(RB_ColorChannelSize layerR = 0; layerR < layer.rSize; layerR++) {
+			for(RB_ColorChannelSize layerG = 0; layerG < layer.gSize; layerG++) {
+				for(RB_ColorChannelSize layerB = 0; layerB < layer.bSize; layerB++) {
+					if(octantDataIndex >= maxOctants) {
+						fprintf(stderr, "Oh shit! We're generating too many octants!\n");
+						RB_freeColorPool(ret);
+						return NULL;
+					}
+
+					ColorPoolOctant* newOct = ret->octants + octantDataIndex;
+					octantDataIndex++;
+
+					// The minimum r, g, and b of this octant translated into the global coordinates
+					RB_Color globalColor = {
+						.r = layerR * layer.divisor,
+						.g = layerG * layer.divisor,
+						.b = layerB * layer.divisor
+					};
+
+					newOct->minCorner = globalColor;
+					newOct->maxCorner = newOct->minCorner;
+
+					// The minimum r, g, and b of this octant translated into the coordinates of the previous layer.
+					// minLLay stands for minimum last layer
+					RB_ColorChannelSize minLLayR = layerR * 2;
+					RB_ColorChannelSize minLLayG = layerG * 2;
+					RB_ColorChannelSize minLLayB = layerB * 2;
+
+
+					NodeChildrenSize childrenLength = 0;
+
+					for(RB_ColorChannelSize lLayR = minLLayR; lLayR < (minLLayR + 2); lLayR++) {
+						for(RB_ColorChannelSize lLayG = minLLayG; lLayG < (minLLayG + 2); lLayG++) {
+							for(RB_ColorChannelSize lLayB = minLLayB; lLayB < (minLLayB + 2); lLayB++) {
+								ColorPoolNode child = getDataFromLayer(lastLayer, lLayR, lLayG, lLayB);
+
+								if(child.type == POOL_NODE_EMPTY) {
+									continue;
+								}
+
+								RB_Color childMaxCorner = getNodeMaxCorner(child);
+
+								if(childMaxCorner.r > newOct->maxCorner.r) {
+									newOct->maxCorner.r = childMaxCorner.r;
+								}
+								if(childMaxCorner.g > newOct->maxCorner.g) {
+									newOct->maxCorner.g = childMaxCorner.g;
+								}
+								if(childMaxCorner.b > newOct->maxCorner.b) {
+									newOct->maxCorner.b = childMaxCorner.b;
+								}
+
+								newOct->children[childrenLength] = child;
+								childrenLength++;
+							}
+						}		
+					}
+
+					// Make sure the rest of the children are empty nodes
+					for(; childrenLength < RB_COLOR_POOL_NODE_NUM_CHILDREN; childrenLength++) {
+						newOct->children[childrenLength] = (ColorPoolNode) {
+							.type = POOL_NODE_EMPTY,
+							.data = NULL
+						};
+					}
+				}
+			}
+		}
+
+		lastLayer = layer;
+	} while(lastLayer.rSize > 1 || lastLayer.gSize > 1 || lastLayer.bSize > 1);
 
 	return ret;
 }
 
 // Frees a previously allocated color pool
 void RB_freeColorPool(RB_ColorPool* pool) {
-	printf("Freeing RB_ColorPool!\n");
-	free(pool);
-}
-
-RB_Color RB_findIdealAvailableColor(RB_ColorPool* pool, RB_Color preferredColor) {
-	RB_ColorSquareDistance bestDistanceSq = ~0; // The inverse of 0 is the largest possible value for the type.
-	RB_Size bestIndex = -1;
-	for(RB_Size i = 0; i < pool->colorsSize; i++) {
-		RB_Color iColor = pool->colors[i];
-		RB_ColorChannelDifference deltaR = preferredColor.r - iColor.r;
-		RB_ColorChannelDifference deltaG = preferredColor.g - iColor.g;
-		RB_ColorChannelDifference deltaB = preferredColor.b - iColor.b;
-
-		RB_ColorSquareDistance distSq = (deltaR * deltaR) + (deltaG * deltaG) + (deltaB * deltaB);
-
-		if(distSq < bestDistanceSq) {
-			bestDistanceSq = distSq;
-			bestIndex = i;
-		}
-	}
-
-	return pool->colors[bestIndex];
-}
-
-bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color color) {
-	return (pool->colorIndexes[color.r][color.g][color.b] != -1);
-}
-
-void RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
-	RB_Size colorIndex = pool->colorIndexes[toRemove.r][toRemove.g][toRemove.b];
-
-	if(colorIndex == -1) {
-		fprintf(stderr, "Error: attempting to remove color that has already been removed.\n");
+	if(pool == NULL) {
 		return;
 	}
 
-	pool->colorIndexes[toRemove.r][toRemove.g][toRemove.b] = -1;
+	printf("Freeing RB_ColorPool!\n");
 
-	RB_Color lastColor = pool->colors[pool->colorsSize - 1];
+	free(pool->colors);
+	pool->colors = NULL;
 
-	pool->colorIndexes[lastColor.r][lastColor.g][lastColor.b] = colorIndex;
-	pool->colors[colorIndex] = lastColor;
+	free(pool->octants);
+	pool->octants = NULL;
 
-	pool->colorsSize--;
+	free(pool->nodeQueue);
+	pool->nodeQueue = NULL;
+
+	free(pool);
+}
+
+RB_ColorChannel getChannelValueWithinBoundaries(RB_ColorChannel minVal, RB_ColorChannel maxVal, RB_ColorChannel toBound) {
+	RB_ColorChannel lowerBounded = toBound < minVal? minVal : toBound;
+	return lowerBounded > maxVal? maxVal : lowerBounded;
+}
+
+RB_ColorSquareDistance getSquareDistance(RB_Color a, RB_Color b) {
+	RB_ColorChannelDifference dR = a.r - b.r;
+	RB_ColorChannelDifference dG = a.g - b.g;
+	RB_ColorChannelDifference dB = a.b - b.b;
+
+	return (
+		((RB_ColorSquareDistance) dR * dR)
+		+ ((RB_ColorSquareDistance) dG * dG)
+		+ ((RB_ColorSquareDistance) dB * dB)
+	);
+}
+
+// Using only the bounds of the octant and not the actual elements inside of it, what's the closest color
+// that this octant could possibly contain?
+RB_ColorSquareDistance getBlindClosestDistance(ColorPoolNode node, RB_Color color) {
+	switch(node.type) {
+		case POOL_NODE_EMPTY:
+			return ~((RB_ColorSquareDistance) 0); // This should return the maximum possible value
+		case POOL_NODE_OCTANT: {
+			ColorPoolOctant* octant = (ColorPoolOctant*) node.data;
+			RB_Color closest = (RB_Color) {
+				.r = getChannelValueWithinBoundaries(octant->minCorner.r, octant->maxCorner.r, color.r),
+				.g = getChannelValueWithinBoundaries(octant->minCorner.g, octant->maxCorner.g, color.g),
+				.b = getChannelValueWithinBoundaries(octant->minCorner.b, octant->maxCorner.b, color.b),
+			};
+			return getSquareDistance(color, closest);
+		}
+		case POOL_NODE_COLOR: {
+			RB_Color* nodeColorPtr = (RB_Color*) node.data;
+			return getSquareDistance(color, *nodeColorPtr);
+		}
+	}
+}
+
+RB_ColorSquareDistance getBlindWorstDistance(ColorPoolNode node, RB_Color color) {
+	switch(node.type) {
+		case POOL_NODE_EMPTY:
+			return 0;
+		case POOL_NODE_OCTANT: {
+			ColorPoolOctant* octant = (ColorPoolOctant*) node.data;
+			RB_Color furthestColor = {
+				.r = ((color.r * 2) - (octant->minCorner.r + octant->maxCorner.r)) > 0?
+					octant->minCorner.r : octant->maxCorner.r,
+				.g = ((color.g * 2) - (octant->minCorner.g + octant->maxCorner.g)) > 0?
+					octant->minCorner.g : octant->maxCorner.g,
+				.b = ((color.b * 2) - (octant->minCorner.b + octant->maxCorner.b)) > 0?
+					octant->minCorner.b : octant->maxCorner.b
+			};
+			return getSquareDistance(color, furthestColor);
+		}
+		case POOL_NODE_COLOR: {
+			RB_Color* nodeColorPtr = (RB_Color*) node.data;
+			return getSquareDistance(color, *nodeColorPtr);
+		}
+	}
+}
+
+
+/*
+Basic algorithm (figured out by me!):
+1) Add the root node to the "node queue." At the start, it will be the only node in the queue.
+2) Initialize minWorstCase to the worst case of the root node, I guess.
+3) Iterate through each node in the node queue.
+	3.1) If the node's best case is greater than minWorstCase, remove it from the queue.
+	3.2) If the node is an octant node, iterate through its children.
+		3.2.1) If the child's best case is greater than minWorstCase, do nothing.
+		3.2.2) If the child's best case is less than or equal to minWorstCase, add it to the node queue.
+		3.2.3) If the child's worst case is less than minWorstCase, set minWorstCase to the child's worst case value.
+	3.3) If the node is an octant node, remove it from the queue.
+4) If, during step 3, minWorstCase was updated or an octant was added to the queue, repeat step 3
+5) At this point, we know that the node queue only contains ideal colors. Choose one and return.
+*/
+RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
+	ColorPoolNode* nodeQueue = colorPool->nodeQueue;
+	RB_Size nodeQueueSize = 1;
+	RB_Size nodeQueueNextSize = 0;
+
+	nodeQueue[0] = colorPool->root;
+	RB_ColorSquareDistance minWorstCase = getBlindWorstDistance(colorPool->root, desired);
+	bool shouldIterateAgain = true;
+
+	while(shouldIterateAgain) {
+		shouldIterateAgain = false;
+
+		for(RB_Size i = 0; i < nodeQueueSize; i++) {
+			ColorPoolNode node = nodeQueue[i];
+			RB_ColorSquareDistance nodeBestCase = getBlindClosestDistance(node, desired);
+
+			if(nodeBestCase <= minWorstCase) {
+				if(node.type == POOL_NODE_OCTANT) {
+					ColorPoolOctant* octantNode = (ColorPoolOctant*) node.data;
+					for(NodeChildrenSize j = 0; j < RB_COLOR_POOL_NODE_NUM_CHILDREN; j++) {
+						ColorPoolNode child = octantNode->children[j];
+
+						if(child.type == POOL_NODE_EMPTY) break;
+
+						RB_ColorSquareDistance childBestCase = getBlindClosestDistance(child, desired);
+						RB_ColorSquareDistance childWorstCase = getBlindWorstDistance(child, desired);
+
+						if(childBestCase <= minWorstCase) {
+							// add child to node queue
+
+							if(nodeQueueNextSize <= i) {
+								// If there's room at the start of the queue, add it there
+								// We're able to overwrite the node at position `i` because we already have its value saved
+								// in the node variable, and because it's an octant, it's going to be deleted anyway.
+
+								if(child.type == POOL_NODE_OCTANT) {
+									// Despite my algorithm saying that we should iterate again whenever we add
+									// an octant to the queue, the way we're handling adding nodes to the queue
+									// means that octants added to the end of the queue will be handled as though
+									// they were part of this iteration, so we don't need to iterate again for them.
+									// That's why we're only setting shouldIterateAgain to true when we're adding
+									// an octant to the beginning of the queue.
+									shouldIterateAgain = true;
+								}
+
+								nodeQueue[nodeQueueNextSize] = child;
+								nodeQueueNextSize++;
+							} else {
+								// If there's no room at the start of the queue, add it to the end.
+								nodeQueue[nodeQueueSize] = child;
+								nodeQueueSize++;
+							}
+						}
+						if(childWorstCase < minWorstCase) {
+							shouldIterateAgain = true;
+							minWorstCase = childWorstCase;
+						}
+					}
+				} else {
+					// At this point, we know the node is a color that meets the threshold for being kept
+					// We know that nodeQueueNextSize must be less than or equal to `i`, because `i` has necessarily
+					// increased by one since the last time nodeQueueNextSize could potentially have been equal to it.
+					
+					nodeQueue[nodeQueueNextSize] = node;
+					nodeQueueNextSize++;	
+				}
+			}
+		}
+
+		nodeQueueSize = nodeQueueNextSize;
+	}
+
+	// So, at this point, the node queue should only contain ideal colors. 
+	RB_Size colorIndex = ((RB_Size) rand()) % nodeQueueSize;
+	ColorPoolNode nodeToReturn = nodeQueue[colorIndex];
+	return *((RB_Color*) nodeToReturn.data);
+}
+
+bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color color) {
+	return false;
+}
+
+void RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
+	
 }

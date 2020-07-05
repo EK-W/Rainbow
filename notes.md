@@ -24,7 +24,10 @@
 - Figure out how to only send SDL_Quit when everything is done.
 - Write as many guarantees as possible
 - Consider inlining certain functions
-
+- Make a separate malloc for each thing being allocated instead of everything in a class getting allocated at the same time
+- To address modulo bias for random numbers, make a utility class that generates random numbers for us, and figure out modulo bias
+	there. This would also allow us to handle the (unlikely) situation where the maximum desired value is greater than RAND_MAX. 
+- Create a logging utility class to allow controls for how verbose the program is.
 
 
 # Thoughts:

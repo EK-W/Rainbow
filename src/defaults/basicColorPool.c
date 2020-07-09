@@ -540,15 +540,15 @@ bool colorIsWithinBounds(RB_Color lower, RB_Color upper, RB_Color col) {
 		(lower.r <= col.r) && (col.r <= upper.r)
 		&& (lower.g <= col.g) && (col.g <= upper.g)
 		&& (lower.b <= col.b) && (col.b <= upper.b)
-	)
+	);
 }
 
-bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color color) {
+bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color toFind) {
 	switch(node.type) {
 		case POOL_NODE_EMPTY:
 			return false;
 		case POOL_NODE_COLOR:
-			// This function will only be called if the color is within the bounds of the node, and the only thing
+			// This function will only be called if toFind is within the bounds of the node, and the only thing
 			// that's within the bounds of a color is itself. So if we reach a color, we already know that it is
 			// the one we're looking for.
 			return true;
@@ -559,26 +559,26 @@ bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color color) {
 				ColorPoolNode child = oct->children[i];
 				RB_Color childMinCorner = getNodeMinCorner(child);
 				RB_Color childMaxCorner = getNodeMaxCorner(child);
-				if(colorIsWithinBounds(childMinCorner, childMaxCorner, color)) {
-					return colorIsAvailableRecursive(child, color);
+				if(colorIsWithinBounds(childMinCorner, childMaxCorner, toFind)) {
+					return colorIsAvailableRecursive(child, toFind);
 				}
 			}
 
-			// At this point, we know that the color is not within any of the children's bounds. This means
+			// At this point, we know that toFind is not within any of the children's bounds. This means
 			// the color is not present in the tree anymore.
 			return false;
 		}
 	}
 }
 
-bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color color) {
+bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color toFind) {
 	RB_Color rootMin = getNodeMinCorner(pool->root);
 	RB_Color rootMax = getNodeMaxCorner(pool->root);
 
-	if(!colorIsWithinBounds(rootMin, rootMax, color)) {
+	if(!colorIsWithinBounds(rootMin, rootMax, toFind)) {
 		return false;
 	}
-	return colorIsAvailable(pool->root, color);
+	return colorIsAvailableRecursive(pool->root, toFind);
 }
 
 void RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {

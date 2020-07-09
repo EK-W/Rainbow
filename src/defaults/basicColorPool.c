@@ -3,18 +3,6 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-// struct RB_ColorPool_s {
-// 	RB_Color* colors;
-// 	RB_Size colorsSize;
-
-// 	RB_Size*** colorIndexes;
-// 	RB_ColorChannelSize rSize;
-// 	RB_ColorChannelSize gSize;
-// 	RB_ColorChannelSize bSize;
-// };
-
-
-
 typedef enum {
 	POOL_NODE_COLOR,
 	POOL_NODE_OCTANT,
@@ -37,6 +25,8 @@ typedef struct ColorPoolOctant {
 	// by *any* octant (for instance, if the color has already been removed from this one).
 	RB_Color minCorner;
 	RB_Color maxCorner;
+
+	NodeChildrenSize numChildren;
 
 	ColorPoolNode children[RB_COLOR_POOL_NODE_NUM_CHILDREN];
 } ColorPoolOctant;
@@ -147,6 +137,78 @@ RB_Color getNodeMaxCorner(ColorPoolNode node) {
 	}
 }
 
+RB_Color calculateOctantMinCorner(ColorPoolOctant* octant) {
+	RB_Color ret = getNodeMinCorner(octant->children[0]);
+
+	for(NodeChildrenSize i = 1; i < octant->numChildren; i++) {
+		RB_Color childMinCorner = getNodeMinCorner(octant->children[i]);
+
+		if(childMinCorner.r < ret.r) {
+			ret.r = childMinCorner.r;
+		}
+		if(childMinCorner.g < ret.g) {
+			ret.g = childMinCorner.g;
+		}
+		if(childMinCorner.b < ret.b) {
+			ret.b = childMinCorner.b;
+		}
+	}
+
+	return ret;
+}
+
+RB_Color calculateOctantMaxCorner(ColorPoolOctant* octant) {
+	RB_Color ret = getNodeMaxCorner(octant->children[0]);
+
+	for(NodeChildrenSize i = 1; i < octant->numChildren; i++) {
+		RB_Color childMaxCorner = getNodeMaxCorner(octant->children[i]);
+
+		if(childMaxCorner.r > ret.r) {
+			ret.r = childMaxCorner.r;
+		}
+		if(childMaxCorner.g > ret.g) {
+			ret.g = childMaxCorner.g;
+		}
+		if(childMaxCorner.b > ret.b) {
+			ret.b = childMaxCorner.b;
+		}
+	}
+
+	return ret;
+}
+
+
+ColorPoolNode pruneNewNodeTree(ColorPoolNode node) {
+	if(node.type == POOL_NODE_OCTANT) {
+		ColorPoolOctant* oct = (ColorPoolOctant*) node.data;
+
+		// Prune all children.
+		for(NodeChildrenSize i = 0; i < oct->numChildren; i++) {
+			oct->children[i] = pruneNewNodeTree(oct->children[i]);
+		}
+
+		// If this octant only has one child, replace it with the child.
+		if(oct->numChildren == 1) {
+			// Make sure that the child has the same min and max corners as the parent. This should always be the case,
+			// assuming pruneNewNodeTree is only run immediately after the tree's creation.
+			ColorPoolNode child = oct->children[0];
+			RB_Color childMinCorner = getNodeMinCorner(child);
+			RB_Color childMaxCorner = getNodeMaxCorner(child);
+			if((!RB_colorsAreEqual(childMinCorner, oct->minCorner)) || (!RB_colorsAreEqual(childMaxCorner, oct->maxCorner))) {
+				fprintf(
+					stderr,
+					"Error pruning the new ColorPool tree! The parent to be pruned has different bounds than its child!\n"
+					"This should never happen!\n"
+				);
+			}
+
+			return child;
+		}
+	}
+
+	return node;
+}
+
 RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize gSize, RB_ColorChannelSize bSize) {
 	RB_ColorPool* ret = (RB_ColorPool*) malloc(sizeof(RB_ColorPool));
 	
@@ -229,7 +291,7 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 			for(RB_ColorChannelSize layerG = 0; layerG < layer.gSize; layerG++) {
 				for(RB_ColorChannelSize layerB = 0; layerB < layer.bSize; layerB++) {
 					if(octantDataIndex >= maxOctants) {
-						fprintf(stderr, "Oh shit! We're generating too many octants!\n");
+						fprintf(stderr, "Too many octants are being generated!\n");
 						RB_freeColorPool(ret);
 						return NULL;
 					}
@@ -246,6 +308,7 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 
 					newOct->minCorner = globalColor;
 					newOct->maxCorner = newOct->minCorner;
+					newOct->numChildren = 0;
 
 					// The minimum r, g, and b of this octant translated into the coordinates of the previous layer.
 					// minLLay stands for minimum last layer
@@ -253,39 +316,29 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 					RB_ColorChannelSize minLLayG = layerG * 2;
 					RB_ColorChannelSize minLLayB = layerB * 2;
 
-
-					NodeChildrenSize childrenLength = 0;
-
 					for(RB_ColorChannelSize lLayR = minLLayR; lLayR < (minLLayR + 2); lLayR++) {
 						for(RB_ColorChannelSize lLayG = minLLayG; lLayG < (minLLayG + 2); lLayG++) {
 							for(RB_ColorChannelSize lLayB = minLLayB; lLayB < (minLLayB + 2); lLayB++) {
 								ColorPoolNode child = getDataFromLayer(lastLayer, lLayR, lLayG, lLayB);
 
+								// If the node we're looking at isn't valid (for instance if it's out of bounds), skip it.
 								if(child.type == POOL_NODE_EMPTY) {
 									continue;
 								}
 
-								RB_Color childMaxCorner = getNodeMaxCorner(child);
-
-								if(childMaxCorner.r > newOct->maxCorner.r) {
-									newOct->maxCorner.r = childMaxCorner.r;
-								}
-								if(childMaxCorner.g > newOct->maxCorner.g) {
-									newOct->maxCorner.g = childMaxCorner.g;
-								}
-								if(childMaxCorner.b > newOct->maxCorner.b) {
-									newOct->maxCorner.b = childMaxCorner.b;
-								}
-
-								newOct->children[childrenLength] = child;
-								childrenLength++;
+								newOct->children[newOct->numChildren] = child;
+								newOct->numChildren++;
 							}
 						}		
 					}
 
-					// Make sure the rest of the children are empty nodes
-					for(; childrenLength < RB_COLOR_POOL_NODE_NUM_CHILDREN; childrenLength++) {
-						newOct->children[childrenLength] = (ColorPoolNode) {
+					// calculate newOct's maximum corner
+					newOct->maxCorner = calculateOctantMaxCorner(newOct);
+
+					// Make sure the rest of the children are empty nodes.
+					// This step arguably isn't necessary, but I'm doing it anyway.
+					for(NodeChildrenSize i = newOct->numChildren; i < RB_COLOR_POOL_NODE_NUM_CHILDREN; i++) {
+						newOct->children[i] = (ColorPoolNode) {
 							.type = POOL_NODE_EMPTY,
 							.data = NULL
 						};
@@ -296,6 +349,15 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 
 		lastLayer = layer;
 	} while(lastLayer.rSize > 1 || lastLayer.gSize > 1 || lastLayer.bSize > 1);
+
+	// set the root node
+	ret->root = (ColorPoolNode) {
+		.type = POOL_NODE_OCTANT,
+		.data = lastLayer.dataStart
+	};
+
+	//prune the tree
+	pruneNewNodeTree(ret->root);
 
 	return ret;
 }
@@ -416,10 +478,8 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
 			if(nodeBestCase <= minWorstCase) {
 				if(node.type == POOL_NODE_OCTANT) {
 					ColorPoolOctant* octantNode = (ColorPoolOctant*) node.data;
-					for(NodeChildrenSize j = 0; j < RB_COLOR_POOL_NODE_NUM_CHILDREN; j++) {
+					for(NodeChildrenSize j = 0; j < octantNode->numChildren; j++) {
 						ColorPoolNode child = octantNode->children[j];
-
-						if(child.type == POOL_NODE_EMPTY) break;
 
 						RB_ColorSquareDistance childBestCase = getBlindClosestDistance(child, desired);
 						RB_ColorSquareDistance childWorstCase = getBlindWorstDistance(child, desired);
@@ -475,10 +535,135 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
 	return *((RB_Color*) nodeToReturn.data);
 }
 
+
+
 bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color color) {
 	return false;
 }
 
 void RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
 	
+}
+
+void printNode(ColorPoolNode node, FILE* stream) {
+	switch(node.type) {
+		case POOL_NODE_EMPTY:
+			fprintf(stream, "Empty Node");
+			break;
+		case POOL_NODE_COLOR: {
+			RB_Color col = *((RB_Color*) node.data);
+			fprintf(stream, "Color Node(%u,%u,%u)", col.r, col.g, col.b);
+			break;
+		}
+		case POOL_NODE_OCTANT: {
+			ColorPoolOctant* oct = (ColorPoolOctant*) node.data;
+			fprintf(
+				stream,
+				"Octant Node(%u children) min = (%u,%u,%u) max = (%u,%u,%u)",
+				oct->numChildren,
+				oct->minCorner.r,
+				oct->minCorner.g,
+				oct->minCorner.b,
+				oct->maxCorner.r,
+				oct->maxCorner.g,
+				oct->maxCorner.b
+			);
+			break;
+		}
+	}
+}
+
+
+
+void printEntireTree(ColorPoolNode node, int depth) {
+	for(int i = 0; i < depth; i++) {
+		printf("   |");
+	}
+	printNode(node, stdout);
+	printf("\n");
+
+	if(node.type != POOL_NODE_OCTANT) {
+		return;
+	}
+
+	ColorPoolOctant* octant = (ColorPoolOctant*) node.data; 
+
+	for(NodeChildrenSize i = 0; i < octant->numChildren; i++) {
+		printEntireTree(octant->children[i], depth + 1);
+	}
+}
+
+bool testColorPool(ColorPoolNode node) {
+	if(node.type != POOL_NODE_OCTANT) return false;
+
+	ColorPoolOctant* octant = (ColorPoolOctant*) node.data;
+
+	for(NodeChildrenSize i = 0; i < octant->numChildren; i++) {
+		if(testColorPool(octant->children[i])) {
+			return true;
+		}
+	}
+
+	if(octant->numChildren == 1) {
+		printf("Octant with one child!\nOctant: ");
+		printNode(node, stdout);
+		printf("\nChild: ");
+		printNode(octant->children[0], stdout);
+		printf("\n\n");
+	}
+
+	RB_Color newMinCorner = octant->maxCorner;
+	RB_Color newMaxCorner = octant->minCorner;
+
+	for(NodeChildrenSize i = 0; i < octant->numChildren; i++) {
+		ColorPoolNode child = octant->children[i];
+		RB_Color childMinCorner = getNodeMinCorner(child);
+		RB_Color childMaxCorner = getNodeMaxCorner(child);
+
+		if(childMinCorner.r < newMinCorner.r) newMinCorner.r = childMinCorner.r;
+		if(childMinCorner.g < newMinCorner.g) newMinCorner.g = childMinCorner.g;
+		if(childMinCorner.b < newMinCorner.b) newMinCorner.b = childMinCorner.b;
+
+		if(childMaxCorner.r > newMaxCorner.r) newMaxCorner.r = childMaxCorner.r;
+		if(childMaxCorner.g > newMaxCorner.g) newMaxCorner.g = childMaxCorner.g;
+		if(childMaxCorner.b > newMaxCorner.b) newMaxCorner.b = childMaxCorner.b;
+	}
+
+	if(!RB_colorsAreEqual(newMinCorner, octant->minCorner) || !RB_colorsAreEqual(newMaxCorner, octant->maxCorner)) {
+		fprintf(stderr, "Octant corners are not what was calculated!\n");
+		printNode(node, stderr);
+		fprintf(stderr, "\nCalculated minimum = %u,%u,%u\n", newMinCorner.r, newMinCorner.g, newMinCorner.b);
+		fprintf(stderr, "Calculated maximum = %u,%u,%u\n", newMaxCorner.r, newMaxCorner.g, newMaxCorner.b);
+		return true;
+	}
+
+	return false;
+}
+
+
+int main(int argc, char** argv) {
+	RB_ColorPool* pool = RB_createColorPool(5, 5, 1);
+
+	if(!testColorPool(pool->root)) {
+		printf("All tests passed!\n");
+	}
+
+	printf("\n\nEntire tree:\n\n");
+	printEntireTree(pool->root, 0);
+
+	printf("\n\nTime to prune!\n");
+	pruneNewNodeTree(pool->root);
+	printf("Pruning complete.\n");
+	
+	printf("\n\nEntire pruned tree:\n\n");
+	printEntireTree(pool->root, 0);
+
+	printf("\n\nTesting pruned tree...");
+
+	if(!testColorPool(pool->root)) {
+		printf("All tests passed!\n");
+	}
+
+	RB_freeColorPool(pool);
+	return 0;
 }

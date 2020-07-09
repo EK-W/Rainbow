@@ -5,6 +5,9 @@ IMPLEMENTATIONS = $(addprefix src/defaults/,basicAssignmentQueue.c basicColorPoo
 main: $(RBHEADERS) $(IMPLEMENTATIONS) src/main.c
 	gcc -o main src/main.c $(IMPLEMENTATIONS) -I./src `sdl2-config --cflags --libs`
 
+test: $(addprefix src/headers/,RB_ColorPool.h RB_BasicTypes.h) $(addprefix src/defaults/,basicColorPool.c basicTypes.c)
+	gcc -o test $(addprefix src/defaults/,basicColorPool.c basicTypes.c) -I./src
+
 # main: rainbowFactory.c display.c rainbowImageGen.h display.h
 # #	gcc -o main display.c `sdl2-config --cflags --libs`
 # 	gcc -o main rainbowFactory.c display.c `sdl2-config --cflags --libs`

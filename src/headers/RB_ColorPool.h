@@ -15,6 +15,9 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool*, RB_Color);
 
 bool RB_colorIsAvailableInPool(RB_ColorPool*, RB_Color);
 
-void RB_removeColorFromPool(RB_ColorPool*, RB_Color);
+// Attempts to remove the specified color from the pool.
+// If the specified color is contained by the Color Pool, removes it and returns true.
+// If the specified color is not contained by the Color Pool, returns false.
+bool RB_removeColorFromPool(RB_ColorPool*, RB_Color);
 
 #endif

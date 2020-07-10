@@ -54,8 +54,8 @@ struct RB_ColorPool_s {
 	RB_ColorChannelSize bSize;
 };
 
-void printEntireTree(ColorPoolNode node, int depth);
-void printNode(ColorPoolNode node, FILE* stream);
+void printEntireTree(FILE* stream, ColorPoolNode node);
+void printNode(FILE* stream, ColorPoolNode node);
 
 
 RB_Color getNodeMinCorner(ColorPoolNode node) {
@@ -692,7 +692,7 @@ bool RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
 	return false;
 }
 
-void printNode(ColorPoolNode node, FILE* stream) {
+void printNode(FILE* stream, ColorPoolNode node) {
 	switch(node.type) {
 		case POOL_NODE_EMPTY:
 			fprintf(stream, "Empty Node");
@@ -720,12 +720,12 @@ void printNode(ColorPoolNode node, FILE* stream) {
 	}
 }
 
-void printEntireTree(ColorPoolNode node, int depth) {
+void printEntireTreeRecursive(FILE* stream, ColorPoolNode node, int depth) {
 	for(int i = 0; i < depth; i++) {
-		printf("   |");
+		fprintf(stream, "   |");
 	}
-	printNode(node, stdout);
-	printf("\n");
+	printNode(stream, node);
+	fprintf(stream, "\n");
 
 	if(node.type != POOL_NODE_OCTANT) {
 		return;
@@ -734,6 +734,10 @@ void printEntireTree(ColorPoolNode node, int depth) {
 	ColorPoolOctant* octant = (ColorPoolOctant*) node.data; 
 
 	for(NodeChildrenSize i = 0; i < octant->numChildren; i++) {
-		printEntireTree(octant->children[i], depth + 1);
+		printEntireTreeRecursive(stream, octant->children[i], depth + 1);
 	}
+}
+
+void printEntireTree(FILE* stream, ColorPoolNode node) {
+	printEntireTreeRecursive(stream, node, 0);
 }

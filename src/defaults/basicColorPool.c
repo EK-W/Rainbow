@@ -38,6 +38,7 @@ typedef struct {
 
 struct ColorPoolColorNode_s {
 	RB_Color color;
+	bool isAvailable;
 
 	ChildNodeParentData parentData;
 };
@@ -226,6 +227,16 @@ size_t calculateMaximumOctants(RB_ColorChannelSize rSize, RB_ColorChannelSize gS
 	return ret;
 }
 
+RB_Size getDataPosition(
+	RB_ColorChannel r,
+	RB_ColorChannel g,
+	RB_ColorChannel b,
+	RB_ColorChannelSize gSize,
+	RB_ColorChannelSize bSize
+) {
+	return (((r * gSize) + g) * bSize) + b;
+}
+
 ColorPoolNode getDataFromLayer(
 	OctantLayerMetaData layerDat,
 	RB_ColorChannelSize layerR,
@@ -236,7 +247,7 @@ ColorPoolNode getDataFromLayer(
 		return emptyColorPoolNode;
 	}
 
-	RB_Size dataPosition = (((layerR * layerDat.gSize) + layerG) * layerDat.bSize) + layerB;
+	RB_Size dataPosition = getDataPosition(layerR, layerG, layerB, layerDat.gSize, layerDat.bSize);
 
 	if(layerDat.index == 0) {
 		// This means its the color layer
@@ -299,6 +310,7 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 				};
 				ret->colorNodes[colorIndex] = (ColorPoolColorNode) {
 					.color = col,
+					.isAvailable = true,
 					.parentData = {
 						.octant = NULL
 					}
@@ -654,7 +666,9 @@ bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color toFind) {
 	if(!colorIsWithinNodeBounds(pool->root, toFind)) {
 		return false;
 	}
-	return colorIsAvailableRecursive(pool->root, toFind);
+	RB_Size colorNodeIndex = getDataPosition(toFind.r, toFind.g, toFind.b, pool->gSize, pool->bSize);
+
+	return pool->colorNodes[colorNodeIndex].isAvailable;
 }
 
 // Attempts to remove the color from the pool. Returns true if it is successful, otherwise false.
@@ -684,6 +698,9 @@ bool removeColorRecursive(ColorPoolNode* node, RB_Color toRemove, int* parentUpd
 					if(removeColorRecursive(&(oct->children[i]), toRemove, &updateAction)) {
 						if(updateAction == 2) { // action = 2 indicates that the child should be removed.
 							// Remove the child.
+							if(oct->children[i].type == POOL_NODE_COLOR) {
+								oct->children[i].colorNodePtr->isAvailable = false;
+							}
 							updateNodeParentData(oct->children[oct->numChildren - 1], oct, i);
 
 							oct->children[i] = oct->children[oct->numChildren - 1];

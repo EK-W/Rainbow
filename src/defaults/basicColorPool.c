@@ -24,6 +24,11 @@ typedef struct ColorPoolNode_s {
 	};
 } ColorPoolNode;
 
+const ColorPoolNode emptyColorPoolNode = {
+	.type = POOL_NODE_EMPTY,
+	.octantNodePtr = NULL
+};
+
 typedef struct {
 	// A pointer to the octant that contains the child.
 	ColorPoolOctant* octant;
@@ -228,9 +233,7 @@ ColorPoolNode getDataFromLayer(
 	RB_ColorChannelSize layerB
 ) {
 	if(layerR >= layerDat.rSize || layerG >= layerDat.gSize || layerB >= layerDat.bSize) {
-		return (ColorPoolNode) {
-			.type = POOL_NODE_EMPTY
-		};
+		return emptyColorPoolNode;
 	}
 
 	RB_Size dataPosition = (((layerR * layerDat.gSize) + layerG) * layerDat.bSize) + layerB;
@@ -391,9 +394,7 @@ RB_ColorPool* RB_createColorPool(RB_ColorChannelSize rSize, RB_ColorChannelSize 
 					// Make sure the rest of the children are empty nodes.
 					// This step arguably isn't necessary, but I'm doing it anyway.
 					for(NodeChildrenSize i = newOct->numChildren; i < RB_COLOR_POOL_NODE_NUM_CHILDREN; i++) {
-						newOct->children[i] = (ColorPoolNode) {
-							.type = POOL_NODE_EMPTY,
-						};
+						newOct->children[i] = emptyColorPoolNode;
 					}
 				}
 			}
@@ -520,6 +521,11 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
 
 	if(colorPool->root.type == POOL_NODE_EMPTY) {
 		fprintf(stderr, "Error: attempting to find ideal available color in an empty color pool!");
+		return (RB_Color) {
+			.r = 0,
+			.g = 0,
+			.b = 0
+		};
 	}
 
 	nodeQueue[0] = colorPool->root;
@@ -598,13 +604,25 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
 	return ret;
 }
 
-bool colorIsWithinBounds(RB_Color lower, RB_Color upper, RB_Color col) {
-	return (
-		(lower.r <= col.r) && (col.r <= upper.r)
-		&& (lower.g <= col.g) && (col.g <= upper.g)
-		&& (lower.b <= col.b) && (col.b <= upper.b)
-	);
+bool colorIsWithinNodeBounds(ColorPoolNode node, RB_Color col) {
+	switch(node.type) {
+		case POOL_NODE_EMPTY:
+			fprintf(stderr, "Attempting to check the bounds of an empty node!\n");
+			return false;
+		case POOL_NODE_COLOR:
+			return RB_colorsAreEqual(col, node.colorNodePtr->color);
+		case POOL_NODE_OCTANT: {
+			RB_Color lower = node.octantNodePtr->minCorner;
+			RB_Color upper = node.octantNodePtr->maxCorner;
+			return (
+				(lower.r <= col.r) && (col.r <= upper.r)
+				&& (lower.g <= col.g) && (col.g <= upper.g)
+				&& (lower.b <= col.b) && (col.b <= upper.b)
+			);
+		}
+	}
 }
+
 
 bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color toFind) {
 	switch(node.type) {
@@ -620,9 +638,7 @@ bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color toFind) {
 
 			for(NodeChildrenSize i = 0; i < oct->numChildren; i++) {
 				ColorPoolNode child = oct->children[i];
-				RB_Color childMinCorner = getNodeMinCorner(child);
-				RB_Color childMaxCorner = getNodeMaxCorner(child);
-				if(colorIsWithinBounds(childMinCorner, childMaxCorner, toFind)) {
+				if(colorIsWithinNodeBounds(child, toFind)) {
 					return colorIsAvailableRecursive(child, toFind);
 				}
 			}
@@ -635,10 +651,7 @@ bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color toFind) {
 }
 
 bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color toFind) {
-	RB_Color rootMin = getNodeMinCorner(pool->root);
-	RB_Color rootMax = getNodeMaxCorner(pool->root);
-
-	if(!colorIsWithinBounds(rootMin, rootMax, toFind)) {
+	if(!colorIsWithinNodeBounds(pool->root, toFind)) {
 		return false;
 	}
 	return colorIsAvailableRecursive(pool->root, toFind);
@@ -664,10 +677,8 @@ bool removeColorRecursive(ColorPoolNode* node, RB_Color toRemove, int* parentUpd
 
 			for(NodeChildrenSize i = 0; i < oct->numChildren; i++) {
 				//ColorPoolNode child = oct->children[i];
-				RB_Color childMinCorner = getNodeMinCorner(oct->children[i]);
-				RB_Color childMaxCorner = getNodeMaxCorner(oct->children[i]);
 
-				if(colorIsWithinBounds(childMinCorner, childMaxCorner, toRemove)) {
+				if(colorIsWithinNodeBounds(oct->children[i], toRemove)) {
 					int updateAction;
 
 					if(removeColorRecursive(&(oct->children[i]), toRemove, &updateAction)) {
@@ -728,17 +739,12 @@ bool removeColorRecursive(ColorPoolNode* node, RB_Color toRemove, int* parentUpd
 }
 
 bool RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
-	RB_Color rootMin = getNodeMinCorner(pool->root);
-	RB_Color rootMax = getNodeMaxCorner(pool->root);
-
-	if(colorIsWithinBounds(rootMin, rootMax, toRemove)) {
+	if(colorIsWithinNodeBounds(pool->root, toRemove)) {
 		int updateAction;
 		bool ret = removeColorRecursive(&(pool->root), toRemove, &updateAction);
 
 		if(updateAction == 2) {
-			pool->root = (ColorPoolNode) {
-				.type = POOL_NODE_EMPTY
-			};
+			pool->root = emptyColorPoolNode;
 		}
 
 		return ret;

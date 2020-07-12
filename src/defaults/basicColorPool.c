@@ -616,54 +616,8 @@ RB_Color RB_findIdealAvailableColor(RB_ColorPool* colorPool, RB_Color desired) {
 	return ret;
 }
 
-bool colorIsWithinNodeBounds(ColorPoolNode node, RB_Color col) {
-	switch(node.type) {
-		case POOL_NODE_EMPTY:
-			fprintf(stderr, "Attempting to check the bounds of an empty node!\n");
-			return false;
-		case POOL_NODE_COLOR:
-			return RB_colorsAreEqual(col, node.colorNodePtr->color);
-		case POOL_NODE_OCTANT: {
-			RB_Color lower = node.octantNodePtr->minCorner;
-			RB_Color upper = node.octantNodePtr->maxCorner;
-			return (
-				(lower.r <= col.r) && (col.r <= upper.r)
-				&& (lower.g <= col.g) && (col.g <= upper.g)
-				&& (lower.b <= col.b) && (col.b <= upper.b)
-			);
-		}
-	}
-}
-
-
-bool colorIsAvailableRecursive(ColorPoolNode node, RB_Color toFind) {
-	switch(node.type) {
-		case POOL_NODE_EMPTY:
-			return false;
-		case POOL_NODE_COLOR:
-			// This function will only be called if toFind is within the bounds of the node, and the only thing
-			// that's within the bounds of a color is itself. So if we reach a color, we already know that it is
-			// the one we're looking for.
-			return true;
-		case POOL_NODE_OCTANT: {
-			ColorPoolOctant* oct = node.octantNodePtr;
-
-			for(NodeChildrenSize i = 0; i < oct->numChildren; i++) {
-				ColorPoolNode child = oct->children[i];
-				if(colorIsWithinNodeBounds(child, toFind)) {
-					return colorIsAvailableRecursive(child, toFind);
-				}
-			}
-
-			// At this point, we know that toFind is not within any of the children's bounds. This means
-			// the color is not present in the tree anymore.
-			return false;
-		}
-	}
-}
-
 bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color toFind) {
-	if(!colorIsWithinNodeBounds(pool->root, toFind)) {
+	if(toFind.r >= pool->rSize || toFind.g >= pool->gSize || toFind.b >= pool->bSize) {
 		return false;
 	}
 	RB_Size colorNodeIndex = getDataPosition(toFind.r, toFind.g, toFind.b, pool->gSize, pool->bSize);
@@ -671,103 +625,65 @@ bool RB_colorIsAvailableInPool(RB_ColorPool* pool, RB_Color toFind) {
 	return pool->colorNodes[colorNodeIndex].isAvailable;
 }
 
-// Attempts to remove the color from the pool. Returns true if it is successful, otherwise false.
-// Sets parentUpdateAction to 0 if the parent doesn't need to update anything.
-// Sets parentUpdateAction to 1 if the parent's minimum and maximum corners may need to be updated.
-// Sets parentUpdateAction to 2 if the parent needs to remove the node and potentially update its corners.
-bool removeColorRecursive(ColorPoolNode* node, RB_Color toRemove, int* parentUpdateAction) {
-	switch(node->type) {
-		case POOL_NODE_EMPTY:
-			(*parentUpdateAction) = 0;
-			return false;
-		case POOL_NODE_COLOR:
-			// This function will only be called if toRemove is within the bounds of the node, and the only thing
-			// that's within the bounds of a color is itself. So if we reach a color, we already know that it is
-			// the one we're trying to remove.
-			(*parentUpdateAction) = 2;
-			return true;
-		case POOL_NODE_OCTANT: {
-			ColorPoolOctant* oct = node->octantNodePtr;
-
-			for(NodeChildrenSize i = 0; i < oct->numChildren; i++) {
-				//ColorPoolNode child = oct->children[i];
-
-				if(colorIsWithinNodeBounds(oct->children[i], toRemove)) {
-					int updateAction;
-
-					if(removeColorRecursive(&(oct->children[i]), toRemove, &updateAction)) {
-						if(updateAction == 2) { // action = 2 indicates that the child should be removed.
-							// Remove the child.
-							if(oct->children[i].type == POOL_NODE_COLOR) {
-								oct->children[i].colorNodePtr->isAvailable = false;
-							}
-							updateNodeParentData(oct->children[oct->numChildren - 1], oct, i);
-
-							oct->children[i] = oct->children[oct->numChildren - 1];
-							oct->numChildren--;
-
-							// If there's only one child left, replace this node with the remaining child.
-							if(oct->numChildren == 1) {
-								(*node) = oct->children[0];
-								updateNodeParentData(oct->children[0], oct->parentData.octant, oct->parentData.index);	
-								
-								// If we're replacing this node with our only child, we don't need to update our
-								// bounds because this octant no longer will exist. Tell the parent that it may
-								// need to update its bounds and return.
-								(*parentUpdateAction) = 1;
-								return true;
-							}
-						}
-						if(updateAction >= 1) {
-							RB_Color oldMinCorner = oct->minCorner;
-							RB_Color oldMaxCorner = oct->maxCorner;
-
-							oct->minCorner = calculateOctantMinCorner(oct);
-							oct->maxCorner = calculateOctantMaxCorner(oct);
-
-							if(
-								RB_colorsAreEqual(oldMinCorner, oct->minCorner)
-								&& RB_colorsAreEqual(oldMaxCorner, oct->maxCorner)
-							) {
-								// If this octant's bounds are unchanged, there's no need to update the parent's bounds.
-								(*parentUpdateAction) = 0;
-							} else {
-								(*parentUpdateAction) = 1;
-							}
-
-							return true;
-						}
-
-						(*parentUpdateAction) = 0;
-						return true;
-					}
-
-					// If nothing was removed, we can just return false.
-					(*parentUpdateAction) = 0;
-					return false;
-				}
-			}
-
-			// At this point, we know that toRemove is not included in the tree and therefore cannot be removed.
-			(*parentUpdateAction) = 0;
-			return false;
-		}
-	}
-}
-
 bool RB_removeColorFromPool(RB_ColorPool* pool, RB_Color toRemove) {
-	if(colorIsWithinNodeBounds(pool->root, toRemove)) {
-		int updateAction;
-		bool ret = removeColorRecursive(&(pool->root), toRemove, &updateAction);
-
-		if(updateAction == 2) {
-			pool->root = emptyColorPoolNode;
-		}
-
-		return ret;
+	if(toRemove.r >= pool->rSize || toRemove.g >= pool->gSize || toRemove.b >= pool->bSize) {
+		return false;
 	}
 
-	return false;
+	RB_Size colorNodeIndex = getDataPosition(toRemove.r, toRemove.g, toRemove.b, pool->gSize, pool->bSize);
+	ColorPoolColorNode* colorNode = &(pool->colorNodes[colorNodeIndex]);
+
+	// If colorNode has already been removed, it can't be removed again. 
+	if(!colorNode->isAvailable) {
+		return false;
+	}
+
+	colorNode->isAvailable = false;
+
+	// If the colorNode has no parent, then it is presumably the root. Set the root to empty and return.
+	if(colorNode->parentData.octant == NULL) {
+		printf("Removing last color from the pool.\n");
+		pool->root = emptyColorPoolNode;
+		return true;
+	}
+
+	// Remove the colorNode from its parent
+	ColorPoolOctant* octant = colorNode->parentData.octant;
+	octant->numChildren--;
+	octant->children[colorNode->parentData.index] = octant->children[octant->numChildren];
+	updateNodeParentData(octant->children[colorNode->parentData.index], octant, colorNode->parentData.index);
+
+	// if the parent now only has one node, replace it with its one node.
+	if(octant->numChildren == 1) {
+		if(octant->parentData.octant == NULL) {
+			// If the octant is the root node, replace the root node.
+			pool->root = octant->children[0];
+		} else {
+			octant->parentData.octant->children[octant->parentData.index] = octant->children[0];
+		}
+		updateNodeParentData(octant->children[0], octant->parentData.octant, octant->parentData.index);
+
+		// This octant no longer exists. Advance to its parent octant.
+		octant = octant->parentData.octant;
+	}
+
+	// Update the bounds of the ancestor octants.
+	while(octant != NULL) {
+		RB_Color oldMinCorner = octant->minCorner;
+		RB_Color oldMaxCorner = octant->maxCorner;
+
+		octant->minCorner = calculateOctantMinCorner(octant);
+		octant->maxCorner = calculateOctantMaxCorner(octant);
+
+		// If the bounds do not change, they won't change for the parent, either. The updating-bounds phase is over.
+		if(RB_colorsAreEqual(octant->minCorner, oldMinCorner) && RB_colorsAreEqual(octant->maxCorner, oldMaxCorner)) {
+			break;
+		}
+
+		octant = octant->parentData.octant;
+	}
+
+	return true;
 }
 
 void printNode(FILE* stream, ColorPoolNode node) {

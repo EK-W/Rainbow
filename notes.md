@@ -28,6 +28,9 @@
 - To address modulo bias for random numbers, make a utility class that generates random numbers for us, and figure out modulo bias
 	there. This would also allow us to handle the (unlikely) situation where the maximum desired value is greater than RAND_MAX. 
 - Create a logging utility class to allow controls for how verbose the program is.
+- Change boolean function names to better reflect the fact that they're booleans.
+- Figure out if for some reason the wrong coordinates are being added to the generation queue.
+- Address SDL messing up the random number gen.
 
 
 # Thoughts:
